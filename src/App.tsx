@@ -7,16 +7,14 @@ import './App.css';
 export function App() {
   return (
     <BrowserRouter>
-      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        {/* Conteúdo principal com flex: 1 para empurrar o Footer para o rodapé da página */}
-        <div style={{ flex: 1 }}>
+      <div className="app-container">
+        <main className="main-wrapper">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/receita/:id" element={<Recipe />} />
           </Routes>
-        </div>
+        </main>
         
-        {/* Rodapé visível em todas as rotas */}
         <Footer />
       </div>
     </BrowserRouter>
@@ -24,4 +22,3 @@ export function App() {
 }
 
 export default App;
-

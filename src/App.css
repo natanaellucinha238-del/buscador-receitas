@@ -1,4 +1,6 @@
-/* src/App.css */
+/* ==========================================================================
+   VARIAVEIS E RESET GLOBAL (TudoDelícia Theme)
+   ========================================================================== */
 :root {
   --primary: #f26822; /* Laranja estilo TudoGostoso */
   --primary-hover: #d95a1c;
@@ -6,6 +8,8 @@
   --text-dark: #333333;
   --text-light: #666666;
   --white: #ffffff;
+  --border-color: #e5e4e7;
+  --shadow: 0 2px 10px rgba(0,0,0,0.08);
 }
 
 * {
@@ -15,11 +19,31 @@
 body {
   margin: 0;
   background-color: var(--bg-color);
-  font-family: 'Open Sans', 'Inter', sans-serif;
+  font-family: 'Open Sans', 'Inter', system-ui, sans-serif;
   color: var(--text-dark);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* NAVBAR (TOPO) */
+/* Estrutura principal do React para Sticky Footer */
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main-wrapper {
+  flex: 1;
+}
+
+/* ==========================================================================
+   NAVBAR (TOPO)
+   ========================================================================== */
 .navbar {
   background-color: var(--primary);
   padding: 15px 5%;
@@ -29,7 +53,7 @@ body {
   color: var(--white);
   flex-wrap: wrap;
   gap: 15px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow);
 }
 
 .nav-brand {
@@ -67,7 +91,7 @@ body {
   padding: 0 15px;
   border-radius: 0 4px 4px 0;
   border: none;
-  background-color: #e55c1b;
+  background-color: var(--primary-hover);
   color: var(--white);
   cursor: pointer;
   display: flex;
@@ -109,7 +133,9 @@ body {
   border-bottom: 3px solid var(--primary);
 }
 
-/* CONTEÚDO PRINCIPAL */
+/* ==========================================================================
+   CONTEÚDO PRINCIPAL & GRID
+   ========================================================================== */
 .main-content {
   padding: 0 5% 50px;
   max-width: 1400px;
@@ -124,7 +150,6 @@ body {
   border-left: 5px solid var(--primary);
 }
 
-/* GRID DE RECEITAS */
 .recipes-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -177,7 +202,9 @@ body {
   font-weight: 600;
 }
 
-/* MODAL DE DETALHES (Estilo Página de Receita) */
+/* ==========================================================================
+   MODAL DE DETALHES
+   ========================================================================== */
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -236,12 +263,15 @@ body {
   flex: 1;
   min-width: 300px;
 }
-/* RODAPÉ (FOOTER) */
+
+/* ==========================================================================
+   FOOTER (RODAPÉ)
+   ========================================================================== */
 .main-footer {
   background-color: #1e1e1e;
   color: #cccccc;
   padding: 50px 5% 20px;
-  margin-top: 60px;
+  margin-top: auto; /* Garante que o footer fique no fim mesmo em páginas curtas */
 }
 
 .footer-content {
