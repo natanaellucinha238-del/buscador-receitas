@@ -10,6 +10,13 @@ Aplicação web desenvolvida com **React, TypeScript e Vite**, integrada à API 
 
 </div>
 
+## 🌐 Demonstração online
+
+**[Experimentar o TudoDelícia](https://buscador-receitas-tc89.vercel.app)**
+
+Aplicação web desenvolvida com React, TypeScript e Vite, integrada à API TheMealDB para pesquisa de receitas, visualização de detalhes e gerenciamento de favoritos.
+  
+
 ## Sobre o projeto
 
 O **TudoDelícia** é um buscador de receitas criado para praticar desenvolvimento front-end, integração com APIs REST, tipagem com TypeScript e testes automatizados. O projeto possui pesquisa de receitas, navegação por categorias e uma área de favoritos persistidos no navegador.
