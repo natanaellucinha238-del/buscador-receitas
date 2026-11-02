@@ -1,231 +1,288 @@
-import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { api } from '../services/api';
-import type { Recipe as RecipeType, MealResponse } from '../types/recipe';
-import { ChefHat, Share2, MonitorPlay, ArrowLeft, Clock, Users, Heart } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import {
+  ArrowLeft, ArrowRight, Check, ChefHat, ClipboardCheck, Globe2, Heart,
+  MonitorPlay, Share2, UtensilsCrossed,
+} from 'lucide-react';
+import { fetchCatalog, fetchRecipeById } from '../services/recipeCatalog';
+import type { Recipe as RecipeType, RecipeSummary } from '../types/recipe';
 import { isFavorite, toggleFavorite } from '../utils/favorites';
-import '../App.css';
+import '../styles/experience.css';
+
+function getYouTubeEmbedUrl(source: string): string | null {
+  if (!source.trim()) return null;
+  try {
+    const url = new URL(source);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    let id: string | null = null;
+    const host = url.hostname.toLowerCase();
+    if (host === 'youtu.be' || host === 'www.youtu.be') {
+      id = url.pathname.split('/')[1] ?? null;
+    } else if (
+      host === 'youtube.com' || host === 'www.youtube.com' ||
+      host === 'm.youtube.com' || host === 'www.youtube-nocookie.com'
+    ) {
+      id = url.pathname === '/watch'
+        ? url.searchParams.get('v')
+        : (url.pathname.match(/^\/(?:embed|shorts|live)\/([^/]+)/)?.[1] ?? null);
+    } else {
+      return null;
+    }
+    return id && /^[a-zA-Z0-9_-]{11}$/.test(id)
+      ? `https://www.youtube-nocookie.com/embed/${id}`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function ingredientsOf(recipe: RecipeType): string[] {
+  const items: string[] = [];
+  for (let index = 1; index <= 20; index += 1) {
+    const ingredient = recipe[`strIngredient${index}`];
+    const measure = recipe[`strMeasure${index}`];
+    if (ingredient?.trim()) {
+      items.push(`${measure?.trim() ?? ''} ${ingredient.trim()}`.trim());
+    }
+  }
+  return items;
+}
+
+function preparationSections(instructions: string): string[] {
+  return instructions
+    .split(/\r?\n\s*\r?\n|\r?\n/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+}
 
 export default function Recipe() {
   const { id } = useParams();
-  
   const [recipe, setRecipe] = useState<RecipeType | null>(null);
+  const [related, setRelated] = useState<RecipeSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [favorited, setFavorited] = useState(false);
+  const [checked, setChecked] = useState<Set<number>>(() => new Set());
+  const [copied, setCopied] = useState(false);
+  const [shareError, setShareError] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    async function loadRecipe() {
+    const controller = new AbortController();
+    let active = true;
+    document.title = 'Receita | TudoDelícia';
+    setLoading(true);
+    setRecipe(null);
+    setRelated([]);
+    setError(null);
+    setChecked(new Set());
+    setCopied(false);
+
+    async function load() {
+      if (!id) {
+        if (active) setLoading(false);
+        return;
+      }
       try {
-        const response = await api.get<MealResponse>('/lookup.php', {
-          params: { i: id },
-        });
-        if (response.data.meals) {
-          const currentRecipe = response.data.meals[0];
-          setRecipe(currentRecipe);
-          setFavorited(isFavorite(currentRecipe.idMeal));
-          
-          // Atualiza o título da aba do navegador dinamicamente
-          document.title = `${currentRecipe.strMeal} - TudoDelícia`;
+        const found = await fetchRecipeById(id, controller.signal);
+        if (!active) return;
+        setRecipe(found);
+        if (found) {
+          setFavorited(isFavorite(found.idMeal));
+          document.title = `${found.strMeal} | TudoDelícia`;
+          if (found.strCategory) {
+            void fetchCatalog({ kind: 'category', value: found.strCategory }, controller.signal)
+              .then((results) => {
+                if (active) setRelated(results.filter((item) => item.idMeal !== found.idMeal).slice(0, 4));
+              })
+              .catch(() => { /* Sugestões são opcionais; a receita continua disponível. */ });
+          }
         }
-      } catch (error) {
-        console.error('Erro ao buscar os detalhes da receita:', error);
+      } catch (cause) {
+        if (!active || controller.signal.aborted) return;
+        console.error('Falha ao carregar receita:', cause);
+        setError('Não foi possível carregar esta receita. Verifique a conexão e tente novamente.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
-    loadRecipe();
-  }, [id]);
 
-  function handleToggleFavorite() {
+    void load();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [id, retryKey]);
+
+  useEffect(() => () => {
+    if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+  }, []);
+
+  async function handleShare() {
     if (!recipe) return;
-    const isNowFavorite = toggleFavorite(recipe);
-    setFavorited(isNowFavorite);
+    setShareError(false);
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2500);
+    } catch (cause) {
+      console.error('Falha ao copiar endereço:', cause);
+      setShareError(true);
+    }
   }
 
-  function handleShareRecipe() {
+  function handleFavorite() {
     if (!recipe) return;
-    const shareText = `Olha esta receita incrível de ${recipe.strMeal} no TudoDelícia!\nVeja o passo a passo aqui: ${window.location.href}`;
-    navigator.clipboard.writeText(shareText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setFavorited(toggleFavorite(recipe));
   }
 
-  function getIngredients() {
-    if (!recipe) return [];
-    const ingredients = [];
-    for (let i = 1; i <= 20; i++) {
-      const ingredient = recipe[`strIngredient${i}`];
-      const measure = recipe[`strMeasure${i}`];
-      if (ingredient && ingredient.trim() !== '') {
-        ingredients.push(`${measure ? measure.trim() : ''} ${ingredient.trim()}`);
-      }
-    }
-    return ingredients;
-  }
-
-  function getYouTubeEmbedUrl() {
-    if (!recipe?.strYoutube || recipe.strYoutube.trim() === '') return null;
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = recipe.strYoutube.match(regExp);
-    if (match && match[2].length === 11) {
-      return `https://www.youtube.com/embed/${match[2]}`;
-    }
-    return null;
+  function toggleIngredient(index: number) {
+    setChecked((previous) => {
+      const next = new Set(previous);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   }
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f9f9f9' }}>
-        <p style={{ fontSize: '1.5rem', color: 'var(--primary)', fontWeight: 'bold' }}>A preparar os ingredientes...</p>
-      </div>
+      <main className="td-app td-detail-status" role="status" aria-live="polite">
+        <span className="td-loader" aria-hidden="true" />
+        <p>Preparando os ingredientes...</p>
+      </main>
     );
   }
 
-  if (!recipe) {
+  if (error || !recipe) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f9f9f9' }}>
-        <h2 style={{ color: 'var(--text-dark)' }}>Receita não encontrada!</h2>
-        <Link to="/" style={{ marginTop: '20px', padding: '12px 24px', backgroundColor: 'var(--primary)', color: '#fff', textDecoration: 'none', borderRadius: '4px', fontWeight: 'bold' }}>
-          Voltar para a Página Inicial
-        </Link>
-      </div>
+      <main className="td-app td-detail-status" role={error ? 'alert' : undefined}>
+        <div className="td-empty__icon"><UtensilsCrossed size={32} /></div>
+        <h1>{error ? 'Não foi possível carregar' : 'Receita não encontrada'}</h1>
+        <p>{error ?? 'Essa receita não está disponível no momento.'}</p>
+        <div className="td-detail-status__actions">
+          {error && <button className="td-outline-button" type="button" onClick={() => setRetryKey((key) => key + 1)}>Tentar novamente</button>}
+          <Link className="td-primary-button" to="/">Voltar às receitas <ArrowRight size={17} /></Link>
+        </div>
+      </main>
     );
   }
 
-  const prepTime = (recipe.idMeal.charCodeAt(0) % 40) + 20;
-  const portions = (recipe.idMeal.charCodeAt(1) % 8) + 2;
-  const favoritesCount = (recipe.idMeal.charCodeAt(2) * 14) + (favorited ? 1 : 0);
+  const ingredients = ingredientsOf(recipe);
+  const sections = preparationSections(recipe.strInstructions);
+  const embed = getYouTubeEmbedUrl(recipe.strYoutube);
+  const progress = ingredients.length > 0 ? Math.round((checked.size / ingredients.length) * 100) : 0;
 
   return (
-    <div style={{ backgroundColor: '#eef1f4', minHeight: '100vh', paddingBottom: '60px' }}>
-      
-      {/* NAVBAR */}
-      <header className="navbar" style={{ justifyContent: 'center', position: 'relative' }}>
-        <Link to="/" style={{ position: 'absolute', left: '5%', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none', fontWeight: 'bold', fontSize: '1.1rem' }}>
-          <ArrowLeft size={24} /> Voltar
-        </Link>
-        <div className="nav-brand">
-          <ChefHat size={32} />
-          <span>TudoDelícia</span>
+    <div className="td-app td-detail-page">
+      <a className="td-skip-link" href="#modo-preparo">Pular para o preparo</a>
+      <header className="td-header">
+        <div className="td-container td-header__inner">
+          <Link className="td-brand" to="/"><span className="td-brand__icon"><ChefHat size={24} /></span><span>Tudo<span className="td-brand__accent">Delícia</span></span></Link>
+          <Link to="/" className="td-back"><ArrowLeft size={18} /> Todas as receitas</Link>
         </div>
       </header>
 
-      {/* CONTAINER DA RECEITA */}
-      <main style={{ maxWidth: '1100px', margin: '40px auto 0', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-        
-        {/* CABEÇALHO DA RECEITA */}
-        <div style={{ padding: '40px 50px', borderBottom: '1px solid #eee' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px' }}>
-            <h1 style={{ margin: '0 0 20px 0', fontSize: '2.8rem', color: 'var(--text-dark)', fontWeight: '800' }}>
-              {recipe.strMeal}
-            </h1>
-            
-            {/* BOTÕES DE AÇÃO: FAVORITAR E COMPARTILHAR */}
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button 
-                onClick={handleToggleFavorite} 
-                style={{ backgroundColor: favorited ? '#ffe6e6' : '#f5f5f5', border: 'none', width: '50px', height: '50px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
-                title={favorited ? "Remover dos Favoritos" : "Adicionar aos Favoritos"}
-              >
-                <Heart size={24} color={favorited ? "#f26822" : "#555"} fill={favorited ? "#f26822" : "none"} />
-              </button>
-              
-              <button 
-                onClick={handleShareRecipe} 
-                style={{ backgroundColor: '#f5f5f5', border: 'none', width: '50px', height: '50px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
-                title="Partilhar Link da Receita"
-              >
-                <Share2 size={24} color={copied ? "#1e8e3e" : "#555"} />
-              </button>
+      <main className="td-container td-detail">
+        <nav className="td-breadcrumb" aria-label="Localização"><Link to="/">Início</Link><span aria-hidden="true">/</span><span>Detalhes da receita</span></nav>
+        <section className="td-detail__heading">
+          <div>
+            <span className="td-kicker"><UtensilsCrossed size={15} /> Hora de cozinhar</span>
+            <h1>{recipe.strMeal}</h1>
+            <div className="td-detail__tags">
+              {recipe.strCategory && <span><UtensilsCrossed size={15} /> {recipe.strCategory}</span>}
+              {recipe.strArea && <span><Globe2 size={15} /> {recipe.strArea}</span>}
             </div>
           </div>
-
-          {copied && (
-            <div style={{ backgroundColor: '#e6f4ea', color: '#1e8e3e', padding: '12px 20px', borderRadius: '6px', marginBottom: '25px', fontWeight: 'bold', display: 'inline-block' }}>
-              Link copiado com sucesso! ✅
-            </div>
-          )}
-
-          {/* ESTATÍSTICAS */}
-          <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginTop: '10px' }}>
-            <div style={{ flex: '1', minWidth: '120px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', backgroundColor: '#f9f9f9', padding: '20px', borderRadius: '8px' }}>
-              <Clock size={32} color="var(--primary)" />
-              <span style={{ fontSize: '0.85rem', color: '#888', textTransform: 'uppercase', fontWeight: 'bold' }}>Preparo</span>
-              <span style={{ fontSize: '1.2rem', color: 'var(--text-dark)', fontWeight: '900' }}>{prepTime} MIN</span>
-            </div>
-            <div style={{ flex: '1', minWidth: '120px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', backgroundColor: '#f9f9f9', padding: '20px', borderRadius: '8px' }}>
-              <Users size={32} color="var(--primary)" />
-              <span style={{ fontSize: '0.85rem', color: '#888', textTransform: 'uppercase', fontWeight: 'bold' }}>Rendimento</span>
-              <span style={{ fontSize: '1.2rem', color: 'var(--text-dark)', fontWeight: '900' }}>{portions} PORÇÕES</span>
-            </div>
-            <div style={{ flex: '1', minWidth: '120px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', backgroundColor: favorited ? '#ffe6e6' : '#f9f9f9', padding: '20px', borderRadius: '8px', transition: 'background 0.3s' }}>
-              <Heart size={32} color="var(--primary)" fill={favorited ? "var(--primary)" : "none"} />
-              <span style={{ fontSize: '0.85rem', color: '#888', textTransform: 'uppercase', fontWeight: 'bold' }}>Favoritos</span>
-              <span style={{ fontSize: '1.2rem', color: 'var(--text-dark)', fontWeight: '900' }}>{favoritesCount.toLocaleString('pt-BR')}</span>
-            </div>
+          <div className="td-detail__actions">
+            <button className={`td-detail__action ${favorited ? 'is-saved' : ''}`} type="button" aria-pressed={favorited} onClick={handleFavorite}>
+              <Heart size={19} fill={favorited ? 'currentColor' : 'none'} />{favorited ? 'Salva' : 'Salvar receita'}
+            </button>
+            <button className="td-detail__action" type="button" onClick={() => { void handleShare(); }}>
+              {copied ? <Check size={19} /> : <Share2 size={19} />}{copied ? 'Link copiado' : 'Compartilhar'}
+            </button>
           </div>
+        </section>
+        {shareError && <p role="alert" className="td-inline-error">Não foi possível copiar o link. Você pode copiar o endereço diretamente do navegador.</p>}
+
+        <div className="td-detail__cover">
+          <img src={recipe.strMealThumb} alt={recipe.strMeal} />
+          <div className="td-detail__cover-note"><ChefHat size={19} /> Prepare no seu ritmo, do seu jeito.</div>
         </div>
 
-        {/* CORPO DA RECEITA */}
-        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-          
-          {/* COLUNA ESQUERDA: IMAGEM E VÍDEO */}
-          <div style={{ flex: '1 1 450px', padding: '40px 50px' }}>
-            <img 
-              src={recipe.strMealThumb} 
-              alt={recipe.strMeal} 
-              style={{ width: '100%', borderRadius: '12px', boxShadow: '0 8px 20px rgba(0,0,0,0.12)', objectFit: 'cover' }} 
-            />
-            
-            {getYouTubeEmbedUrl() && (
-              <div style={{ marginTop: '40px' }}>
-                <h3 style={{ fontSize: '1.4rem', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                  <MonitorPlay size={28} color="var(--primary)" /> Assista ao Vídeo
-                </h3>
-                <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', borderRadius: '12px', backgroundColor: '#000', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                  <iframe
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-                    src={getYouTubeEmbedUrl() as string}
-                    title="Vídeo da receita"
-                    frameBorder="0"
-                    allowFullScreen
-                  ></iframe>
+        <div className="td-detail__columns">
+          <aside className="td-ingredients" aria-labelledby="ingredientes">
+            <div className="td-ingredients__header">
+              <span className="td-overline">Checklist da cozinha</span>
+              <h2 id="ingredientes">Ingredientes</h2>
+              <p>Marque o que já separou para o preparo.</p>
+            </div>
+            {ingredients.length > 0 ? (
+              <>
+                <div className="td-progress__row"><span>{checked.size} de {ingredients.length} separados</span><strong>{progress}%</strong></div>
+                <div className="td-progress" role="progressbar" aria-label="Ingredientes separados" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
+                <ul className="td-ingredient-list">
+                  {ingredients.map((ingredient, index) => (
+                    <li key={`${index}-${ingredient}`}>
+                      <label className={checked.has(index) ? 'is-checked' : ''}>
+                        <input type="checkbox" checked={checked.has(index)} onChange={() => toggleIngredient(index)} />
+                        <span className="td-checkbox" aria-hidden="true"><Check size={13} /></span>
+                        <span>{ingredient}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : <p>Ingredientes não informados.</p>}
+          </aside>
+
+          <div className="td-preparation" id="modo-preparo">
+            <section aria-labelledby="preparo-titulo">
+              <span className="td-overline">Mãos à obra</span>
+              <h2 id="preparo-titulo">Modo de preparo</h2>
+              {sections.length > 0 ? (
+                <div className="td-preparation__steps">
+                  {sections.map((text, index) => (
+                    <div className="td-preparation__step" key={`${index}-${text.slice(0, 20)}`}>
+                      <span className="td-preparation__number">{String(index + 1).padStart(2, '0')}</span>
+                      <p>{text}</p>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              ) : <p>Modo de preparo não informado.</p>}
+            </section>
+            {embed && (
+              <section className="td-video" aria-labelledby="td-video-title">
+                <h2 id="td-video-title"><MonitorPlay size={24} /> Assista ao preparo</h2>
+                <p>Vídeo relacionado à receita, quando disponibilizado pela TheMealDB.</p>
+                <div className="td-video__frame">
+                  <iframe src={embed} loading="lazy" title={`Vídeo de preparo: ${recipe.strMeal}`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                </div>
+              </section>
             )}
           </div>
-
-          {/* COLUNA DIREITA: INGREDIENTES E PREPARO */}
-          <div style={{ flex: '1 1 450px', padding: '40px 50px', backgroundColor: '#fafafa', borderLeft: '1px solid #eee' }}>
-            
-            <section style={{ marginBottom: '50px' }}>
-              <h2 style={{ fontSize: '1.6rem', color: 'var(--text-dark)', borderBottom: '4px solid var(--primary)', paddingBottom: '10px', display: 'inline-block' }}>
-                Ingredientes
-              </h2>
-              <ul style={{ paddingLeft: '20px', marginTop: '25px', lineHeight: '2.2' }}>
-                {getIngredients().map((ingredient, index) => (
-                  <li key={index} style={{ color: '#444', fontSize: '1.1rem', borderBottom: '1px dashed #ddd', paddingBottom: '8px', marginBottom: '8px' }}>
-                    {ingredient}
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section>
-              <h2 style={{ fontSize: '1.6rem', color: 'var(--text-dark)', borderBottom: '4px solid var(--primary)', paddingBottom: '10px', display: 'inline-block' }}>
-                Modo de Preparo
-              </h2>
-              <div style={{ backgroundColor: '#fff', padding: '30px', borderRadius: '12px', marginTop: '25px', border: '1px solid #eee', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                <p style={{ lineHeight: '2', whiteSpace: 'pre-wrap', color: '#444', fontSize: '1.1rem', margin: 0 }}>
-                  {recipe.strInstructions}
-                </p>
-              </div>
-            </section>
-
-          </div>
         </div>
+
+        {related.length > 0 && (
+          <section className="td-related" aria-labelledby="td-related-heading">
+            <div className="td-section-heading"><div><span className="td-overline">Continue explorando</span><h2 id="td-related-heading">Outras receitas para experimentar</h2></div></div>
+            <div className="td-grid">
+              {related.map((item) => (
+                <article className="td-card" key={item.idMeal}>
+                  <Link className="td-card__link" to={`/receita/${item.idMeal}`}>
+                    <div className="td-card__image-wrap"><img className="td-card__image" src={item.strMealThumb} alt={item.strMeal} loading="lazy" /></div>
+                    <div className="td-card__content"><h3>{item.strMeal}</h3><span className="td-card__more">Ver receita <ArrowRight size={15} /></span></div>
+                  </Link>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
+
+      <footer className="td-footer"><div className="td-container td-footer__inner"><span><ClipboardCheck size={20} /> TudoDelícia</span><p>Receitas e vídeos provenientes da TheMealDB. Conteúdo original pode estar em inglês.</p></div></footer>
     </div>
   );
 }
