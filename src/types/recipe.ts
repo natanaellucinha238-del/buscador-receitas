@@ -1,3 +1,4 @@
+/** Receita completa e normalizada, usada nos detalhes e favoritos. */
 export interface Recipe {
   idMeal: string;
   strMeal: string;
@@ -6,10 +7,15 @@ export interface Recipe {
   strInstructions: string;
   strMealThumb: string;
   strYoutube: string;
-  // O TheMealDB retorna os ingredientes numerados de 1 a 20 dinamicamente
-  [key: string]: string | null; 
+  /** Ingredientes, medidas e outros campos dinâmicos da TheMealDB. */
+  [key: string]: string | null;
 }
 
+/** Dados resumidos retornados pelo endpoint filter.php. */
+export type RecipeSummary = Pick<Recipe, 'idMeal' | 'strMeal' | 'strMealThumb'> &
+  Partial<Pick<Recipe, 'strCategory' | 'strArea'>>;
+
+/** Contrato esperado após a validação (não substitui checagem em runtime). */
 export interface MealResponse {
   meals: Recipe[] | null;
 }

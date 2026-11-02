@@ -1,22 +1,16 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Home from './pages/Home';
 import Recipe from './pages/Recipe';
-import Footer from './components/Footer';
-import './App.css';
 
+/** Cada pagina da Sprint 06 possui cabecalho, main e rodape proprios. */
 export function App() {
   return (
     <BrowserRouter>
-      <div className="app-container">
-        <main className="main-wrapper">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/receita/:id" element={<Recipe />} />
-          </Routes>
-        </main>
-        
-        <Footer />
-      </div>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/receita/:id" element={<Recipe />} />
+        <Route path="*" element={<Home />} />
+      </Routes>
     </BrowserRouter>
   );
 }
